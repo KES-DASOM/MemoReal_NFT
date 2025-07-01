@@ -756,7 +756,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "memoreal_nft_proj"
+name = "memoreal_nft_project"
 version = "0.1.0"
 dependencies = [
  "anchor-lang",

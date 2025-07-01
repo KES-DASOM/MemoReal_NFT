@@ -1,12 +1,12 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
-import { MemorealNftProj } from "../target/types/memoreal_nft_proj";
+import { MemorealNftProject } from "../target/types/memoreal_nft_project";
 
-describe("memoreal_nft_proj", () => {
+describe("memoreal_nft_project", () => {
   // Configure the client to use the local cluster.
   anchor.setProvider(anchor.AnchorProvider.env());
 
-  const program = anchor.workspace.memorealNftProj as Program<MemorealNftProj>;
+  const program = anchor.workspace.memorealNftProject as Program<MemorealNftProject>;
 
   it("Is initialized!", async () => {
     // Add your test here.

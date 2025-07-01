@@ -1,9 +1,9 @@
 use anchor_lang::prelude::*;
 
-declare_id!("9sEBnNzja3frQmiU6DBqfn69xMaJSSDdPaPq5GvBhSjQ");
+declare_id!("3fvLRfGFfAYRb28v8C7r2WgpFCUBkcUHZdsvq5fEuEQ3");
 
 #[program]
-pub mod memoreal_nft_proj {
+pub mod memoreal_nft_project {
     use super::*;
 
     pub fn initialize(ctx: Context<Initialize>) -> Result<()> {

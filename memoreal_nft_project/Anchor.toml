@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-memoreal_nft_proj = "9sEBnNzja3frQmiU6DBqfn69xMaJSSDdPaPq5GvBhSjQ"
+memoreal_nft_project = "3fvLRfGFfAYRb28v8C7r2WgpFCUBkcUHZdsvq5fEuEQ3"
 
 [registry]
 url = "https://api.apr.dev"
