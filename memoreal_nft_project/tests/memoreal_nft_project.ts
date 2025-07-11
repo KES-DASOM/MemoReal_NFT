@@ -19,7 +19,7 @@ describe("memoreal_nft_project", () => {
         "우리 우정 영원하자",             // message
         "ipfs://example",                 // media_url
         { timeLocked: {} },               // capsule_type (enum)
-        new anchor.BN(Math.floor(Date.now()) / 1000 + 60), // unlock_at
+        new anchor.BN(Math.floor(Date.now() / 1000) + 60), // unlock_at
         "서울특별시 구로구"              // location
       )
       .accounts({
