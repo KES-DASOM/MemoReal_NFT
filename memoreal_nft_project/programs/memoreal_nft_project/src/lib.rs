@@ -1,4 +1,6 @@
 use anchor_lang::prelude::*;
+use anchor_spl::token::{self, Mint, Token, TokenAccount, MintTo, mint_to};
+use solana_program_option::COption;
 
 declare_id!("4qcHeUMS7H8nXm1n6c2fgGmoSmubUaETVAq1nmFPYxeq");
 
@@ -30,6 +32,43 @@ pub mod memoreal_nft_project {
 
         Ok(())
     }
+
+    pub fn mint_nft(ctx: Context<MintNFT>) -> Result<()> {
+        require!(
+            ctx.accounts.mint.mint_authority == COption::Some(ctx.accounts.author.key()),
+            CustomError::InvalidMintAuthority
+        );
+        
+        let cpi_accounts = MintTo {
+            mint: ctx.accounts.mint.to_account_info(),
+            to: ctx.accounts.token_account.to_account_info(),
+            authority: ctx.accounts.author.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
+        mint_to(cpi_ctx, 1)?;
+        Ok(())
+    }
+    #[error_code]
+    pub enum CustomError {
+        #[msg("Mint authority mismatch.")]
+        InvalidMintAuthority,
+    }
+
+    pub fn is_unlockable(ctx: Context<CheckUnlock>) -> Result<bool> {
+        let capsule = &ctx.accounts.capsule;
+        let now = Clock::get()?.unix_timestamp;
+
+        match capsule.capsule_type {
+            CapsuleType::General => Ok(true), // 일반 캡슐은 언제든지 열 수 있음
+            CapsuleType::TimeLocked => {
+                if let Some(unlock_at) = capsule.unlock_at {
+                    Ok(now >= unlock_at) // 타임락 캡슐은 설정된 시간 이후에만 열 수 있음
+                } else {
+                    Ok(false)
+                }
+            }
+        }
+    }
 }
 
 #[derive(Accounts)]
@@ -41,6 +80,27 @@ pub struct CreateCapsule<'info> {
     pub author: Signer<'info>,
 
     pub system_program: Program<'info, System>,
+}
+
+
+
+#[derive(Accounts)]
+pub struct MintNFT<'info> {
+    #[account(mut)]
+    pub mint: Account<'info, Mint>,
+    #[account(mut)]
+    pub token_account: Account<'info, TokenAccount>, 
+
+    pub author: Signer<'info>,
+
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+    pub rent: Sysvar<'info, Rent>,
+}
+
+#[derive(Accounts)]
+pub struct CheckUnlock<'info> {
+    pub capsule: Account<'info, CapsuleMetadata>,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
