@@ -51,19 +51,20 @@ pub enum CapsuleType {
 
 #[account]
 pub struct CapsuleMetadata {
-    pub author: Pubkey,         // 작성자 지갑 주소
-    pub title: String,          // 제목
-    pub recipient: String,      // 수신자 이름
-    pub message: String,        // 메세지
-    pub media_url: String,      // 사진 또는 영상(IPFS 링크)
-    pub created_at: i64,        // 생성 시간 (Unix timestamp)
-    pub capsule_type: CapsuleType, // 캡슐 종류
+    pub author: Pubkey,             // 작성자 지갑 주소
+    pub title: String,              // 제목
+    pub recipient: String,          // 수신자 이름
+    pub message: String,            // 메세지
+    pub media_url: String,          // 사진 또는 영상(IPFS 링크)
+    pub created_at: i64,            // 생성 시간 (Unix timestamp)
+    pub capsule_type: CapsuleType,  // 캡슐 종류
     pub unlock_at: Option<i64>,     // (선택) 타임락 해제 시간
     pub location: Option<String>,   // (선택) 위치 정보
 }
 
 impl CapsuleMetadata {
-    pub const LEN: usize = 32         // author
+    pub const LEN: usize = 8          // discriminator
+        + 32                          // author
         + 4 + 64                      // title
         + 4 + 64                      // recipient
         + 4 + 256                     // message
