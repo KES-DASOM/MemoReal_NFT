@@ -128,7 +128,6 @@ describe("memoreal_nft_project", () => {
       console.log("새 테스트 캡슐 생성:", capsuleForUnlockCheck.toBase58());
     }
 
-
     const isUnlockable = await program.methods
       .isUnlockable()
       .accounts({

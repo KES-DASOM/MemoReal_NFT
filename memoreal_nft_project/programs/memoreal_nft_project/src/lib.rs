@@ -48,6 +48,7 @@ pub mod memoreal_nft_project {
         mint_to(cpi_ctx, 1)?;
         Ok(())
     }
+    
     #[error_code]
     pub enum CustomError {
         #[msg("Mint authority mismatch.")]
