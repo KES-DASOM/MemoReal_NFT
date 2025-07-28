@@ -17,7 +17,7 @@ use anchor_lang::solana_program::{
     system_program,
 };
 
-declare_id!("4qcHeUMS7H8nXm1n6c2fgGmoSmubUaETVAq1nmFPYxeq");
+declare_id!("3AZ5UigWzJe3kbY6auiREHiyKs4EXw8WaWKASdNH2hkE");
 
 #[program]
 pub mod memoreal_nft_project {

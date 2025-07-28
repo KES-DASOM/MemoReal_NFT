@@ -5,7 +5,8 @@
     "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check"
   },
   "dependencies": {
-    "@coral-xyz/anchor": "^0.31.1",
+    "@coral-xyz/anchor": "0.29.0",
+    "@google/gemini-cli": "^0.1.13",
     "@solana/spl-token": "^0.4.13"
   },
   "devDependencies": {

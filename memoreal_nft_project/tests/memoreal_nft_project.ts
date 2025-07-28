@@ -1,141 +1,467 @@
 import * as anchor from "@coral-xyz/anchor";
 import { Program } from "@coral-xyz/anchor";
 import { MemorealNftProject } from "../target/types/memoreal_nft_project";
-import { getAssociatedTokenAddressSync, createMint, getOrCreateAssociatedTokenAccount, mintTo } from "@solana/spl-token"; // SPL 토큰 관련 함수 임포트
-import { BN } from "bn.js"; // Anchor.BN 대신 직접 BN 임포트 (타입스크립트 호환성)
+import { 
+  Keypair, 
+  PublicKey, 
+  SystemProgram, 
+  SYSVAR_INSTRUCTIONS_PUBKEY,
+  SYSVAR_RENT_PUBKEY 
+} from "@solana/web3.js";
+import { 
+  TOKEN_PROGRAM_ID, 
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  createMint,
+  createAssociatedTokenAccount,
+  getAssociatedTokenAddress
+} from "@solana/spl-token";
+import { expect } from "chai";
 
-describe("memoreal_nft_project", () => {
-  anchor.setProvider(anchor.AnchorProvider.env());
+// Metaplex 관련
+const METAPLEX_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
 
-  const program = anchor.workspace.memorealNftProject as Program<MemorealNftProject>;
-  const provider = anchor.getProvider();
-  const wallet = provider.wallet;
+describe("memoreal-nft-project", () => {
+  before(function() {
+    this.timeout(30000); // 테스트 실행 시간 제한 설정
+  });
+  // Provider 설정
+      const connection = new anchor.web3.Connection("http://127.0.0.1:8899", "confirmed");
+  const keypair = anchor.web3.Keypair.generate();
+  const wallet = new anchor.Wallet(keypair);
+  const provider = new anchor.AnchorProvider(connection, wallet, anchor.AnchorProvider.defaultOptions());
+  anchor.setProvider(provider);
 
-  // 새로 생성할 NFT 민트 계정 및 토큰 계정 키페어 선언
-  let mintAccount: anchor.web3.PublicKey;
-  let tokenAccount: anchor.web3.PublicKey;
-  let mintAuthority: anchor.web3.Keypair; // 민트 권한을 가진 키페어
+  const program = anchor.workspace.MemorealNftProject;
 
-  // 모든 테스트 전에 실행될 초기화 블록
   before(async () => {
-    // 1. NFT 민트 권한으로 사용할 새로운 키페어 생성
-    mintAuthority = anchor.web3.Keypair.generate();
+    if (!program){
+      throw new Error("Program not found. Make sure to run 'anchor build' first.");
+    }
+    console.log("프로그램 ID:", program.programId.toString());
+  });
 
-    // 2. 민트 계정 생성 (decimals: 0으로 NFT임을 나타냄)
-    // 이 계정이 NFT의 "클래스"를 나타냅니다.
-    mintAccount = await createMint(
+  // 테스트용 키페어들
+  let author: Keypair;
+  let capsuleAccount: Keypair;
+  let mintKeypair: Keypair;
+  let tokenAccount: PublicKey;
+  let metadataAccount: PublicKey;
+
+  beforeEach(async () => {
+    // 새로운 키페어 생성
+    author = Keypair.generate();
+    capsuleAccount = Keypair.generate();
+    mintKeypair = Keypair.generate();
+
+    // 작성자에게 SOL 에어드랍
+    const signature = await provider.connection.requestAirdrop(
+      author.publicKey,
+      2 * anchor.web3.LAMPORTS_PER_SOL
+    );
+    await provider.connection.confirmTransaction(signature, 'confirmed');
+
+    // 민트 계정 생성
+    await createMint(
       provider.connection,
-      wallet.payer, // 트랜잭션을 서명하고 비용을 지불할 지갑 (현재 provider의 지갑 사용)
-      mintAuthority.publicKey, // 민트 권한
-      null, // 동결 권한 (없음)
-      0 // decimals: NFT는 0이여야 합니다. (분할 불가능)
-    );
-    console.log("새로운 NFT 민트 계정 생성:", mintAccount.toBase58());
-
-    tokenAccount = await getAssociatedTokenAddressSync(
-      mintAccount, // 민트 계정의 공개 키
-      wallet.publicKey // NFT를 받을 지갑의 공개 키 (현재 provider의 지갑 사용)
+      author,
+      author.publicKey, // mint authority
+      null, // freeze authority
+      0, // decimals (NFT는 0)
+      mintKeypair
     );
 
-    await getOrCreateAssociatedTokenAccount(
+    // 토큰 계정 생성
+    tokenAccount = await createAssociatedTokenAccount(
       provider.connection,
-      wallet.payer, // 트랜잭션을 서명하고 비용을 지불할 지갑
-      mintAccount, // 민트 계정
-      wallet.publicKey // NFT를 받을 지갑
+      author,
+      mintKeypair.publicKey,
+      author.publicKey
     );
-    console.log("NFT를 받을 토큰 계정:", tokenAccount.toBase58());
+
+    // 메타데이터 계정 주소 계산
+    const [metadataPDA] = PublicKey.findProgramAddressSync(
+      [
+        Buffer.from("metadata"),
+        METAPLEX_PROGRAM_ID.toBuffer(),
+        mintKeypair.publicKey.toBuffer(),
+      ],
+      METAPLEX_PROGRAM_ID
+    );
+    metadataAccount = metadataPDA;
   });
 
+  describe("캡슐 생성 테스트", () => {
+    it("일반 캡슐 생성 성공", async () => {
+      const title = "첫 번째 메모리얼";
+      const recipient = "사랑하는 가족";
+      const message = "이 메시지는 나중에 볼 수 있도록 저장됩니다.";
+      const mediaUrl = "https://ipfs.io/ipfs/QmExample123";
 
-  it("Creates a capsule!", async () => {
-    const capsule = anchor.web3.Keypair.generate();
+      const tx = await program.methods
+        .createCapsule(
+          title,
+          recipient,
+          message,
+          mediaUrl,
+          { general: {} }, // CapsuleType::General
+          null, // unlock_at
+          null  // location
+        )
+        .accounts({
+          capsule: capsuleAccount.publicKey,
+          author: author.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([author, capsuleAccount])
+        .rpc();
 
-    const tx = await program.methods
-      .createCapsule(
-        "졸업기념",                     // title
-        "윤도훈",                       // recipient
-        "우리 우정 영원하자",           // message
-        "ipfs://example",             // media_url
-        { timeLocked: {} },             // capsule_type (enum)
-        new BN(Math.floor(Date.now() / 1000) + 60), // unlock_at (현재 시간 + 60초)
-        "서울특별시 구로구"              // location
-      )
-      .accounts({
-        capsule: capsule.publicKey,
-        author: wallet.publicKey,
-        systemProgram: anchor.web3.SystemProgram.programId,
-      })
-      .signers([capsule])
-      .rpc();
+      console.log("캡슐 생성 트랜잭션:", tx);
 
-    console.log("✅ 캡슐 생성 성공! Tx:", tx);
+      // 생성된 캡슐 데이터 확인
+      const capsuleData = await program.account.capsuleMetadata.fetch(
+        capsuleAccount.publicKey
+      );
+
+      expect(capsuleData.title).to.equal(title);
+      expect(capsuleData.recipient).to.equal(recipient);
+      expect(capsuleData.message).to.equal(message);
+      expect(capsuleData.mediaUrl).to.equal(mediaUrl);
+      expect(capsuleData.author.toString()).to.equal(author.publicKey.toString());
+    });
+
+    it("타임 락 캡슐 생성 성공", async () => {
+      const title = "미래의 메시지";
+      const recipient = "미래의 나";
+      const message = "1년 후에 읽을 메시지입니다.";
+      const mediaUrl = "https://ipfs.io/ipfs/QmFuture456";
+      const unlockAt = Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60); // 1년 후
+      const location = "서울시 강남구";
+
+      const capsuleAccount2 = Keypair.generate();
+
+      const tx = await program.methods
+        .createCapsule(
+          title,
+          recipient,
+          message,
+          mediaUrl,
+          { timeLocked: {} }, // CapsuleType::TimeLocked
+          new anchor.BN(unlockAt),
+          location
+        )
+        .accounts({
+          capsule: capsuleAccount2.publicKey,
+          author: author.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([author, capsuleAccount2])
+        .rpc();
+
+      console.log("타임 락 캡슐 생성 트랜잭션:", tx);
+
+      const capsuleData = await program.account.capsuleMetadata.fetch(
+        capsuleAccount2.publicKey
+      );
+
+      expect(capsuleData.title).to.equal(title);
+      expect(capsuleData.unlockAt.toNumber()).to.equal(unlockAt);
+      expect(capsuleData.location).to.equal(location);
+    });
+
+    it("너무 긴 제목으로 캡슐 생성 실패", async () => {
+      const longTitle = "a".repeat(65); // 64자 제한 초과
+
+      try {
+        await program.methods
+          .createCapsule(
+            longTitle,
+            "수신자",
+            "메시지",
+            "https://example.com",
+            { general: {} },
+            null,
+            null
+          )
+          .accounts({
+            capsule: capsuleAccount.publicKey,
+            author: author.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([author, capsuleAccount])
+          .rpc();
+
+        expect.fail("에러가 발생해야 합니다.");
+      } catch (error) {
+        const errorMessage = error?.error?.errorMessage || error?.message || error.toString();
+        expect(errorMessage).to.include("Title exceeds maximum allowed length");
+      }
+    });
   });
 
-  it("Mints an NFT!", async () => {
-    const tx = await program.methods
-      .mintNft()
-      .accounts({
-        mint: mintAccount, // before 훅에서 생성한 민트 계정
-        tokenAccount: tokenAccount, // before 훅에서 생성/가져온 토큰 계정
-        author: mintAuthority.publicKey, // 민트 권한을 가진 키페어의 공개 키
-        tokenProgram: anchor.utils.token.TOKEN_PROGRAM_ID, // SPL Token Program ID
-        systemProgram: anchor.web3.SystemProgram.programId,
-        rent: anchor.web3.SYSVAR_RENT_PUBKEY,
-      })
-      .signers([mintAuthority]) // 민트 권한이 있는 키페어로 트랜잭션 서명
-      .rpc();
-
-    console.log("✅ NFT 발행 성공! Tx:", tx);
-
-    // NFT가 성공적으로 발행되었는지 확인 (선택 사항)
-    const tokenAccountInfo = await provider.connection.getTokenAccountBalance(tokenAccount);
-    console.log("토큰 계정의 NFT 잔액:", tokenAccountInfo.value.uiAmount);
-    // expect(tokenAccountInfo.value.uiAmount).to.equal(1); // chai/mocha를 사용한다면
-  });
-
-  // 추가: 잠금 해제 가능 여부 테스트
-  it("Checks if capsule is unlockable", async () => {
-
-    const tempCapsuleKey = anchor.web3.Keypair.generate().publicKey; // 임시 더미 키
-
-
-    const allCapsules = await program.account.capsuleMetadata.all();
-    let capsuleForUnlockCheck: anchor.web3.PublicKey;
-
-    if (allCapsules.length > 0) {
-      capsuleForUnlockCheck = allCapsules[0].publicKey; // 첫 번째 캡슐 사용
-    } else {
-      console.warn("테스트할 캡슐을 찾을 수 없습니다. 새로운 캡슐을 만듭니다.");
-      const newCapsule = anchor.web3.Keypair.generate();
+  describe("NFT 민팅 테스트", () => {
+    beforeEach(async () => {
+      // 테스트를 위한 일반 캡슐 먼저 생성
       await program.methods
         .createCapsule(
-          "테스트 캡슐",
-          "테스터",
-          "테스트 메시지",
-          "ipfs://test",
-          { general: {} }, // 일반 캡슐로 생성
+          "NFT용 캡슐",
+          "수신자",
+          "NFT로 만들 메시지",
+          "https://ipfs.io/ipfs/QmNFT789",
+          { general: {} },
           null,
           null
         )
         .accounts({
-          capsule: newCapsule.publicKey,
-          author: wallet.publicKey,
-          systemProgram: anchor.web3.SystemProgram.programId,
+          capsule: capsuleAccount.publicKey,
+          author: author.publicKey,
+          systemProgram: SystemProgram.programId,
         })
-        .signers([newCapsule])
+        .signers([author, capsuleAccount])
         .rpc();
-      capsuleForUnlockCheck = newCapsule.publicKey;
-      console.log("새 테스트 캡슐 생성:", capsuleForUnlockCheck.toBase58());
-    }
+    });
 
-    const isUnlockable = await program.methods
-      .isUnlockable()
-      .accounts({
-        capsule: capsuleForUnlockCheck, // 조회할 캡슐 계정
-      })
-      .view(); // `view()`는 체인 상태를 변경하지 않고 값을 읽을 때 사용 (솔라나 simulate 트랜잭션)
+    it("NFT 민팅 성공", async () => {
+      const nftName = "Memoreal NFT #1";
+      const nftSymbol = "MEM";
+      const nftUri = "https://ipfs.io/ipfs/QmNFTMetadata123";
 
-    console.log("캡슐 잠금 해제 가능 여부:", isUnlockable);
-    // expect(isUnlockable).to.be.true; // 또는 false, 테스트 시나리오에 따라
+      // 메타데이터 계정에 대한 rent 확인
+  const rentExemption = await provider.connection.getMinimumBalanceForRentExemption(679);
+
+      const tx = await program.methods
+        .mintNft(nftName, nftSymbol, nftUri)
+        .accounts({
+          mint: mintKeypair.publicKey,
+          tokenAccount: tokenAccount,
+          author: author.publicKey,
+          metadataAccount: metadataAccount,
+          tokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          tokenMetadataProgram: METAPLEX_PROGRAM_ID,
+          sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .signers([author])
+        .rpc();
+
+      console.log("NFT 민팅 트랜잭션:", tx);
+
+      // 토큰 계정의 잔액 확인 (NFT이므로 1이어야 함)
+      const tokenAccountInfo = await provider.connection.getTokenAccountBalance(tokenAccount);
+      expect(tokenAccountInfo.value.amount).to.equal("1");
+    });
+
+    it("잘못된 민트 권한으로 NFT 민팅 실패", async () => {
+      const wrongAuthority = Keypair.generate();
+      
+      // 잘못된 권한자에게 SOL 에어드랍
+      const signature = await provider.connection.requestAirdrop(
+        wrongAuthority.publicKey,
+        anchor.web3.LAMPORTS_PER_SOL
+      );
+      await provider.connection.confirmTransaction(signature);
+
+      try {
+        await program.methods
+          .mintNft("Test NFT", "TEST", "https://example.com")
+          .accounts({
+            mint: mintKeypair.publicKey,
+            tokenAccount: tokenAccount,
+            author: wrongAuthority.publicKey, // 잘못된 권한자
+            metadataAccount: metadataAccount,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: SystemProgram.programId,
+            tokenMetadataProgram: METAPLEX_PROGRAM_ID,
+            sysvarInstructions: SYSVAR_INSTRUCTIONS_PUBKEY,
+          })
+          .signers([wrongAuthority])
+          .rpc();
+
+        expect.fail("에러가 발생해야 합니다.");
+      } catch (error) {
+        expect(error.error.errorMessage).to.include("Mint authority mismatch");
+      }
+    });
   });
-});
+
+  describe("캡슐 조회 및 잠금 해제 테스트", () => {
+    let generalCapsule: Keypair;
+    let timeLockCapsule: Keypair;
+
+    beforeEach(async () => {
+      generalCapsule = Keypair.generate();
+      timeLockCapsule = Keypair.generate();
+
+      // 일반 캡슐 생성
+      await program.methods
+        .createCapsule(
+          "일반 캡슐",
+          "수신자1",
+          "언제든지 볼 수 있는 메시지",
+          "https://ipfs.io/ipfs/QmGeneral",
+          { general: {} },
+          null,
+          null
+        )
+        .accounts({
+          capsule: generalCapsule.publicKey,
+          author: author.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([author, generalCapsule])
+        .rpc();
+
+      // 미래 시간으로 설정된 타임 락 캡슐 생성
+      const futureTime = Math.floor(Date.now() / 1000) + 3600; // 1시간 후
+      await program.methods
+        .createCapsule(
+          "타임 락 캡슐",
+          "수신자2",
+          "나중에 볼 수 있는 메시지",
+          "https://ipfs.io/ipfs/QmTimeLock",
+          { timeLocked: {} },
+          new anchor.BN(futureTime),
+          "서울시 강남구"
+        )
+        .accounts({
+          capsule: timeLockCapsule.publicKey,
+          author: author.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([author, timeLockCapsule])
+        .rpc();
+    });
+
+    it("일반 캡슐 조회 성공", async () => {
+      const result = await program.methods
+        .viewCapsule(null)
+        .accounts({
+          capsule: generalCapsule.publicKey,
+        })
+        .view();
+
+      expect(result.title).to.equal("일반 캡슐");
+      expect(result.message).to.equal("언제든지 볼 수 있는 메시지");
+    });
+
+    it("잠긴 타임 락 캡슐 조회 실패", async () => {
+      try {
+        await program.methods
+          .viewCapsule("서울시 강남구")
+          .accounts({
+            capsule: timeLockCapsule.publicKey,
+          })
+          .view();
+
+        expect.fail("에러가 발생해야 합니다.");
+      } catch (error) {
+        expect(error.error.errorMessage).to.include("Capsule is locked");
+      }
+    });
+
+    it("일반 캡슐 잠금 해제 가능 확인", async () => {
+      const result = await program.methods
+        .isUnlockable()
+        .accounts({
+          capsule: generalCapsule.publicKey,
+        })
+        .view();
+
+      expect(result).to.be.true;
+    });
+
+    it("타임 락 캡슐 잠금 해제 불가 확인", async () => {
+      const result = await program.methods
+        .isUnlockable()
+        .accounts({
+          capsule: timeLockCapsule.publicKey,
+        })
+        .view();
+
+      expect(result).to.be.false;
+    });
+
+    it("과거 시간 타임 락 캡슐 조회 성공", async () => {
+      // 과거 시간으로 설정된 캡슐 생성
+      const pastCapsule = Keypair.generate();
+      const pastTime = Math.floor(Date.now() / 1000) - 3600; // 1시간 전
+
+      await program.methods
+        .createCapsule(
+          "과거 타임 락 캡슐",
+          "수신자3",
+          "이미 열 수 있는 메시지",
+          "https://ipfs.io/ipfs/QmPast",
+          { timeLocked: {} },
+          new anchor.BN(pastTime),
+          null
+        )
+        .accounts({
+          capsule: pastCapsule.publicKey,
+          author: author.publicKey,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([author, pastCapsule])
+        .rpc();
+
+      // 조회 시도
+      const result = await program.methods
+        .viewCapsule(null)
+        .accounts({
+          capsule: pastCapsule.publicKey,
+        })
+        .view();
+
+      expect(result.title).to.equal("과거 타임 락 캡슐");
+      expect(result.message).to.equal("이미 열 수 있는 메시지");
+    });
+  });
+
+  describe("에러 처리 테스트", () => {
+    it("존재하지 않는 캡슐 조회 실패", async () => {
+      const nonExistentCapsule = Keypair.generate();
+
+      try {
+        await program.methods
+          .viewCapsule(null)
+          .accounts({
+            capsule: nonExistentCapsule.publicKey,
+          })
+          .view();
+
+        expect.fail("에러가 발생해야 합니다.");
+      } catch (error) {
+        expect(error.message).to.include("Account does not exist");
+      }
+    });
+
+    it("너무 긴 메시지로 캡슐 생성 실패", async () => {
+      const longMessage = "a".repeat(257); // 256자 제한 초과
+      const failCapsule = Keypair.generate();
+
+      try {
+        await program.methods
+          .createCapsule(
+            "제목",
+            "수신자",
+            longMessage,
+            "https://example.com",
+            { general: {} },
+            null,
+            null
+          )
+          .accounts({
+            capsule: failCapsule.publicKey,
+            author: author.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([author, failCapsule])
+          .rpc();
+
+        expect.fail("에러가 발생해야 합니다.");
+      } catch (error) {
+        expect(error.error.errorMessage).to.include("Message exceeds maximum allowed length");
+      }
+    });
+  });
+}); 
