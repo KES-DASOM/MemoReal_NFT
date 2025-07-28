@@ -1,7 +1,7 @@
 [package]
 name = "memoreal_nft_project"
 version = "0.1.0"
-description = "Created with Anchor"
+description = "Memoreal NFT 프로젝트"
 edition = "2021"
 
 [lib]
@@ -9,14 +9,17 @@ crate-type = ["cdylib", "lib"]
 name = "memoreal_nft_project"
 
 [features]
-default = []
-cpi = ["no-entrypoint"]
 no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
-idl-build = ["anchor-lang/idl-build"]
-
+cpi = ["no-entrypoint"]
+default = []
 
 [dependencies]
-anchor-lang = "0.31.1"
+anchor-lang = "0.29.0"
+anchor-spl = { version = "0.29.0", default-features = false, features = ["token"] }
+spl-token = { version = "4.0.0", default-features = false }
+mpl-token-metadata = "4.1.2"
 
+[dev-dependencies]
+solana-sdk = "1.17"
